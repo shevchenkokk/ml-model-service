@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from pydantic import BaseModel
 import logging
 
 logging.basicConfig(
@@ -12,6 +13,15 @@ app = FastAPI(
     description="API для обучения и использования ML-моделей",
     version="0.1.0"
 )
+
+available_models = {
+    "Логистическая регрессия": "logistic_regression",
+    "Случайный лес": "random_forest",
+    "Градиентный бустинг (LightGBM)": "lightgbm"
+}
+
+class AvailableModelsResponse(BaseModel):
+    available_models: dict[str, str]
 
 
 @app.on_event("startup")
@@ -37,3 +47,12 @@ def get_status():
     """
     logger.info("Запрос на эндпоинт /status")
     return {"status": "ok"}
+
+
+@app.get("/models", response_model=AvailableModelsResponse)
+def get_available_models():
+    """
+    Возвращает список доступных для обучения классов моделей.
+    """
+    logger.info("Запрошен список доступных моделей")
+    return {"available_models": available_models}
