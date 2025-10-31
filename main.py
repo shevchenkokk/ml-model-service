@@ -17,7 +17,7 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup_event():
     """
-    Логгирует сообщение при старте сервиса.
+    Логирует сообщение при старте сервиса.
     """
     logger.info("Сервис запущен")
 
@@ -25,7 +25,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """
-    Логгирует сообщение при остановке сервиса.
+    Логирует сообщение при остановке сервиса.
     """
     logger.info("Сервис остановлен")
 
