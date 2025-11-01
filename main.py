@@ -10,6 +10,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from lightgbm import LGBMClassifier
 
+from database import init_database, add_model_to_database, TRAINED_MODELS_DIR
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -28,9 +30,6 @@ AVAILABLE_MODELS = {
     "Градиентный бустинг (LightGBM)": "lightgbm"
 }
 
-TRAINED_MODELS_DIR = Path("trained_models")
-
-TRAINED_MODELS = {}
 
 class AvailableModelsResponse(BaseModel):
     available_models: dict[str, str]
@@ -53,8 +52,11 @@ async def startup_event():
     """
     Логирует сообщение при старте сервиса.
     """
-    TRAINED_MODELS_DIR.mkdir(exist_ok=True)
     logger.info("Сервис запущен")
+    # инициализация БД
+    init_database()
+    logger.info("База данных успешно инициализирована")
+    TRAINED_MODELS_DIR.mkdir(exist_ok=True)
     logger.info(f"Создана папка '{TRAINED_MODELS_DIR}' для хранения обученных моделей")
 
 
@@ -112,12 +114,13 @@ def train_model(req: TrainModelRequest):
         model_path = TRAINED_MODELS_DIR / f"{model_id}.joblib"
         joblib.dump(model, model_path)
 
-        # временное хранилище
-        TRAINED_MODELS[model_id] = {
-            "model_name": req.model_name,
-            "hyperparameters": req.hyperparameters,
-            "model_path": str(model_path)
-        }
+        # сохраняем запись об обученной модели в локальную БД
+        add_model_to_database(
+            model_id=model_id,
+            model_name=req.model_name,
+            hyperparameters=req.hyperparameters,
+            model_path=model_path
+        )
 
         logger.info(f"Обучение модели '{req.model_name}' завершено. ID модели: {model_id}")
 
