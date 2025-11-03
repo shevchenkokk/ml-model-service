@@ -88,3 +88,37 @@ def get_trained_models_from_database():
         row_to_return["hyperparameters"] = json.loads(row_to_return["hyperparameters"])
         rows_to_return.append(row_to_return)
     return rows_to_return
+
+
+def delete_model_from_database(model_id: str) -> int:
+    """
+    Удаляет запись о модели по её ID.
+    """
+    con = sqlite3.connect(DB_FILE)
+    cur = con.cursor()
+    cur.execute(
+        "DELETE FROM trained_models WHERE id = ?",
+        (model_id,)
+    )
+    con.commit()
+    deleted_rows_num = cur.rowcount
+    con.close()
+    return deleted_rows_num
+
+
+def update_model_in_database(model_id: str, new_hyperparameters: dict) -> int:
+    """
+    Обновляет информацию о модели (гиперпараметры).
+    """
+    con = sqlite3.connect(DB_FILE)
+    cur = con.cursor()
+
+    hyperparameters_json = json.dumps(new_hyperparameters)
+    cur.execute(
+        "UPDATE trained_models SET hyperparameters = ? WHERE id = ?",
+        (hyperparameters_json, model_id)
+    )
+    con.commit()
+    updated_rows_num = cur.rowcount
+    con.close()
+    return updated_rows_num
