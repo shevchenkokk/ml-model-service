@@ -16,6 +16,7 @@ from database import (
     get_trained_models_from_database,
     get_model_from_database,
     delete_model_from_database,
+    update_model_in_database,
     TRAINED_MODELS_DIR
 )
 
@@ -68,6 +69,12 @@ class ModelPredictRequest(BaseModel):
 class ModelPredictResponse(BaseModel):
     model_id: str
     preds: list[int]
+
+
+class RetrainModelRequest(BaseModel):
+    hyperparameters: dict[str, Any] = {}
+    features: list[list[float]]
+    target: list[int]
 
 
 @app.on_event("startup")
@@ -220,4 +227,40 @@ def delete_trained_model(model_id: str):
         logger.error(f"Не удалось удалить файл модели {model_path}: {e}")
     
     return {"message": f"Модель с ID '{model_id}' успешно удалена"}
-    
+
+
+@app.put("/retrain/{model_id}")
+def retrain_model(model_id: str, req: RetrainModelRequest):
+    """
+    Переобучает уже существующую модель на новых данных.
+    """
+    logger.info(f"Получен запрос на переобучение модели с ID: '{model_id}'")
+
+    model_info = get_model_from_database(model_id)
+    if not model_info:
+        raise HTTPException(status_code=404, detail=f"Модель с ID '{model_id}' не найдена")
+
+    model_name = model_info["model_name"]
+    if model_name == "logistic_regression":
+        model_cls = LogisticRegression
+    elif model_name == "random_forest":
+        model_cls = RandomForestClassifier
+    else:
+        model_cls = LGBMClassifier
+
+    try:
+        new_model = model_cls(**req.hyperparameters)
+        new_model.fit(req.features, req.target)
+        
+        # перезаписываем старый файл модели новым
+        model_path = Path(model_info["model_path"])
+        joblib.dump(new_model, model_path)
+        logger.info(f"Файл модели {model_path} успешно перезаписан")
+
+        # обновляем инфу по модели в БД
+        update_model_in_database(model_id, req.hyperparameters)
+
+        return {"message": f"Модель с ID '{model_id}' успешно переобучена"}
+    except Exception as e:
+        logger.error(f"Ошибка при переобучении модели с ID '{model_id}': {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при переобучении модели: {e}")
