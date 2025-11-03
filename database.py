@@ -1,6 +1,7 @@
 import sqlite3
 import json
 from pathlib import Path
+from typing import Optional, Any
 
 DB_FILE = "ml_model_service.db"
 TRAINED_MODELS_DIR = Path("trained_models")
@@ -43,3 +44,47 @@ def add_model_to_database(
     )
     con.commit()
     con.close()
+
+
+def get_model_from_database(model_id: str) -> Optional[dict[str, Any]]:
+    """
+    Получает информацию о модели по ее ID.
+    """
+    con = sqlite3.connect(DB_FILE)
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    cur.execute(
+        "SELECT id, model_name, hyperparameters, model_path FROM trained_models WHERE id = ?",
+        (model_id,)
+    )
+    row = cur.fetchone()
+    con.close()
+
+    if row is None:
+        return None
+
+    row_to_return = dict(row)
+    row_to_return["hyperparameters"] = json.loads(row_to_return["hyperparameters"])
+
+    return dict(row_to_return)
+
+
+def get_trained_models_from_database():
+    """
+    Получает список всех обученных моделей.
+    """
+    con = sqlite3.connect(DB_FILE)
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    cur.execute(
+        "SELECT id, model_name, hyperparameters, model_path FROM trained_models"
+    )
+    rows = cur.fetchall()
+    con.close()
+
+    rows_to_return = []
+    for row in rows:
+        row_to_return = dict(row)
+        row_to_return["hyperparameters"] = json.loads(row_to_return["hyperparameters"])
+        rows_to_return.append(row_to_return)
+    return rows_to_return
