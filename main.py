@@ -10,7 +10,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from lightgbm import LGBMClassifier
 
-from database import init_database, add_model_to_database, TRAINED_MODELS_DIR
+from database import (
+    init_database,
+    add_model_to_database,
+    get_trained_models_from_database,
+    get_model_from_database,
+    TRAINED_MODELS_DIR
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,6 +51,22 @@ class TrainModelRequest(BaseModel):
 class TrainModelResponse(BaseModel):
     message: str
     trained_model_id: str
+
+
+class TrainedModelInfo(BaseModel):
+    id: str
+    model_name: str
+    hyperparameters: dict[str, Any]
+    model_path: str
+
+
+class ModelPredictRequest(BaseModel):
+    features: list[list[float]]
+
+
+class ModelPredictResponse(BaseModel):
+    model_id: str
+    preds: list[int]
 
 
 @app.on_event("startup")
@@ -108,7 +130,7 @@ def train_model(req: TrainModelRequest):
         # создаём инстанс модели и фитим на переданные данные
         model = model_cls(**req.hyperparameters)
         model.fit(req.features, req.target)
-        
+
         # генерируем id и сохраняем обученную модель в файл
         model_id = str(uuid.uuid4())
         model_path = TRAINED_MODELS_DIR / f"{model_id}.joblib"
@@ -133,3 +155,41 @@ def train_model(req: TrainModelRequest):
         # если что-то не так при обучении (некорректное имя модели, гиперпараметры и т.д.) -> выбрасываем ошибку
         logger.error(f"Возникла ошибка при обучении модели: {e}")
         raise HTTPException(status_code=500, detail=f"Возникла ошибка при обучении модели: {e}")
+
+
+@app.get("/trained-models", response_model=list[TrainedModelInfo])
+def get_trained_models():
+    """
+    Возвращает список всех обученных моделей.
+    """
+    logger.info("Запрошен список обученных моделей")
+    trained_models = get_trained_models_from_database()
+    return trained_models
+
+
+@app.post("/predict/{model_id}", response_model=ModelPredictResponse)
+def predict(model_id: str, req: ModelPredictRequest):
+    """
+    Возвращает предсказания модели с ID `model_id` на переданных данных
+    """
+    logger.info(f"Получен запрос на получение предсказаний для модели с ID: '{model_id}'")
+    model_info = get_model_from_database(model_id)
+    if not model_info:
+        raise HTTPException(status_code=404, detail=f"Модель с ID '{model_id}' не найдена")
+    try:
+        model_path = model_info["model_path"]
+        model = joblib.load(model_path)
+
+        preds = model.predict(req.features)
+
+        return ModelPredictResponse(
+            model_id=model_id,
+            preds=preds.tolist()
+        )
+
+    except FileNotFoundError:
+        logger.error(f"Файл для модели '{model_id}' не найден по пути {model_path}")
+        raise HTTPException(status_code=404, detail="Файл модели не найден на сервере")
+    except Exception as e:
+        logger.error(f"Ошибка при получении предсказаний для модели с ID '{model_id}': {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении предсказаний: {e}")
