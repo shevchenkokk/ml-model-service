@@ -3,7 +3,6 @@ from generated import (
     ml_model_service_pb2,
     ml_model_service_pb2_grpc
 )
-from google.protobuf.struct_pb2 import Struct
 from google.protobuf.empty_pb2 import Empty
 
 

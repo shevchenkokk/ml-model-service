@@ -12,8 +12,15 @@ from generated import (
     ml_model_service_pb2,
     ml_model_service_pb2_grpc
 )
-
-from database import *
+from database import (
+    init_database,
+    add_model_to_database,
+    get_trained_models_from_database,
+    get_model_from_database,
+    delete_model_from_database,
+    update_model_in_database,
+    TRAINED_MODELS_DIR
+)
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from lightgbm import LGBMClassifier
