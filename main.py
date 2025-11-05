@@ -155,7 +155,7 @@ def train_model(req: TrainModelRequest):
         logger.info(f"Обучение модели '{req.model_name}' завершено. ID модели: {model_id}")
 
         return TrainModelResponse(
-            message=f"Модель '{req.model_name}' успешно обучена",
+            message=f"Модель '{req.model_name}' успешно обучена. ID: {model_id}",
             trained_model_id=model_id
         )
 
@@ -251,7 +251,7 @@ def retrain_model(model_id: str, req: RetrainModelRequest):
     try:
         new_model = model_cls(**req.hyperparameters)
         new_model.fit(req.features, req.target)
-        
+
         # перезаписываем старый файл модели новым
         model_path = Path(model_info["model_path"])
         joblib.dump(new_model, model_path)
