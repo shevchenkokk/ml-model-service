@@ -47,6 +47,9 @@ poetry run streamlit run dashboard.py
 
 Дашборд будет доступен по адресу `http://localhost:8501`.
 
+Данные для тестирования находятся в директории `data` в корне проекта.
+Протестировать можно, используя csv-файл `train_data.csv` с данными для обучения и файл `test_data_for_prediction.csv` с данными для предсказаний.
+
 **Для проверки работы gRPC** нужно запустить gRPC сервер:
 ```bash
 poetry run python grpc_server.py
