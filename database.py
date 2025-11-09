@@ -2,9 +2,12 @@ import sqlite3
 import json
 from pathlib import Path
 from typing import Optional, Any
+from passlib.context import CryptContext
 
 DB_FILE = "ml_model_service.db"
 TRAINED_MODELS_DIR = Path("trained_models")
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def init_database():
@@ -122,3 +125,61 @@ def update_model_in_database(model_id: str, new_hyperparameters: dict) -> int:
     updated_rows_num = cur.rowcount
     con.close()
     return updated_rows_num
+
+
+def create_users_table():
+    """
+    Создает таблицу users, если она не существует
+    """
+    con = sqlite3.connect(DB_FILE)
+    cur = con.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            hashed_password TEXT NOT NULL
+        )
+    """)
+    con.commit()
+    con.close()
+
+
+def create_user_in_database(username: str, password: str) -> dict:
+    """
+    Создает нового пользователя в БД. Хэширует пароль перед сохранением.
+    Возвращает данные о созданном пользователе.
+    """
+    con = sqlite3.connect(DB_FILE)
+    cur = con.cursor()
+    hashed_password = pwd_context.hash(password)
+    try:
+        cur.execute(
+            "INSERT INTO users (username, hashed_password) VALUES (?, ?)",
+            (username, hashed_password)
+        )
+        con.commit()
+    except sqlite3.IntegrityError:
+        # если пользователь с таким username уже существует
+        con.close()
+        raise ValueError(f"Пользователь с именем '{username}' уже существует")
+    con.close()
+    return {"username": username, "hashed_password": hashed_password}
+
+
+def get_user_from_database(username: str) -> Optional[dict]:
+    """
+    Находит пользователя в БД по его имени и возвращает инфу по нему
+    """
+    con = sqlite3.connect(DB_FILE)
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+
+    cur.execute(
+        "SELECT * FROM users WHERE username = ?",
+        (username,)
+    )
+    row = cur.fetchone()
+    con.close()
+
+    if row is None:
+        return None
+    return dict(row)

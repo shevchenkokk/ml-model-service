@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 import logging
 from typing import Any
@@ -17,7 +18,17 @@ from database import (
     get_model_from_database,
     delete_model_from_database,
     update_model_in_database,
+    create_users_table,
+    create_user_in_database,
     TRAINED_MODELS_DIR
+)
+from auth import (
+    Token,
+    User,
+    get_user,
+    get_current_user,
+    verify_password,
+    create_access_token
 )
 
 logging.basicConfig(
@@ -77,6 +88,11 @@ class RetrainModelRequest(BaseModel):
     target: list[int]
 
 
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+
 @app.on_event("startup")
 async def startup_event():
     """
@@ -85,6 +101,7 @@ async def startup_event():
     logger.info("Сервис запущен")
     # инициализация БД
     init_database()
+    create_users_table()
     logger.info("База данных успешно инициализирована")
     TRAINED_MODELS_DIR.mkdir(exist_ok=True)
     logger.info(f"Создана папка '{TRAINED_MODELS_DIR}' для хранения обученных моделей")
@@ -117,7 +134,7 @@ def get_available_models():
 
 
 @app.post("/train", response_model=TrainModelResponse)
-def train_model(req: TrainModelRequest):
+def train_model(req: TrainModelRequest, current_user: User = Depends(get_current_user)):
     """
     Обучает ML-модель с переданными гиперпараметрами.
     """
@@ -166,7 +183,7 @@ def train_model(req: TrainModelRequest):
 
 
 @app.get("/trained-models", response_model=list[TrainedModelInfo])
-def get_trained_models():
+def get_trained_models(current_user: User = Depends(get_current_user)):
     """
     Возвращает список всех обученных моделей.
     """
@@ -176,7 +193,7 @@ def get_trained_models():
 
 
 @app.post("/predict/{model_id}", response_model=ModelPredictResponse)
-def predict(model_id: str, req: ModelPredictRequest):
+def predict(model_id: str, req: ModelPredictRequest, current_user: User = Depends(get_current_user)):
     """
     Возвращает предсказания модели с ID `model_id` на переданных данных
     """
@@ -204,7 +221,7 @@ def predict(model_id: str, req: ModelPredictRequest):
 
 
 @app.delete("/trained-models/{model_id}", status_code=200)
-def delete_trained_model(model_id: str):
+def delete_trained_model(model_id: str, current_user: User = Depends(get_current_user)):
     """
     Удаляет обученную модель: стирает файл и запись с БД.
     """
@@ -230,7 +247,7 @@ def delete_trained_model(model_id: str):
 
 
 @app.put("/retrain/{model_id}")
-def retrain_model(model_id: str, req: RetrainModelRequest):
+def retrain_model(model_id: str, req: RetrainModelRequest, current_user: User = Depends(get_current_user)):
     """
     Переобучает уже существующую модель на новых данных.
     """
@@ -264,3 +281,33 @@ def retrain_model(model_id: str, req: RetrainModelRequest):
     except Exception as e:
         logger.error(f"Ошибка при переобучении модели с ID '{model_id}': {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при переобучении модели: {e}")
+
+
+@app.post("/register", status_code=201)
+def register_user(user: UserCreate):
+    """
+    Регистрирует нового пользователя в системе
+    """
+    try:
+        create_user_in_database(user.username, user.password)
+        return {"message": f"Пользователь '{user.username}' успешно зарегистрирован"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"{e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка на сервере: {e}")
+
+
+@app.post("/token", response_model=Token)
+def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    # идентификация пользователя
+    user = get_user(form_data.username)
+    # проверка, что пароль соответствует тому, что хранится в БД
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Некорректное имя пользователя или пароль",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    # если всё ок – генерируем токен
+    access_token = create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
