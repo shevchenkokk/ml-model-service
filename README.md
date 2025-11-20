@@ -34,10 +34,10 @@
 
 1. REST API сервер
 ```bash
-poetry run uvicorn main:app --reload
+poetry run uvicorn app.main:app --reload
 ```
 
-* Сервер будет доступен по адресу `http://127.0.0.1:8000`
+* Сервер будет доступен по адресу `http://127.0.0.1:8000`, все REST-эндпоинты находятся по префиксу `/api`
 * Swagger находится по адресу `http://127.0.0.1:8000/docs`
 
 2. Интерактивный дашборд
