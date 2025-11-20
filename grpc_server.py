@@ -12,14 +12,14 @@ from generated import (
     ml_model_service_pb2,
     ml_model_service_pb2_grpc
 )
-from database import (
+from app.core.config import settings
+from app.database.database import (
     init_database,
     add_model_to_database,
     get_trained_models_from_database,
     get_model_from_database,
     delete_model_from_database,
-    update_model_in_database,
-    TRAINED_MODELS_DIR
+    update_model_in_database
 )
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
@@ -30,6 +30,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+TRAINED_MODELS_DIR = settings.TRAINED_MODELS_DIR
 
 AVAILABLE_MODELS = {
     "Логистическая регрессия": "logistic_regression",
@@ -152,7 +154,7 @@ class MLModelService(ml_model_service_pb2_grpc.MLModelServiceServicer):
             logger.error(f"Ошибка при получении предсказаний для модели с ID '{model_id}': {e}")
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(f"Ошибка при получении предсказаний: {e}")
-            return ml_model_service_pb2.PredictResponse()
+            return ml_model_service_pb2.ModelPredictResponse()
 
 
     def DeleteModel(self, request, context):
@@ -241,6 +243,6 @@ def serve():
 if __name__ == "__main__":
     init_database()
     logger.info("База данных успешно инициализирована")
-    TRAINED_MODELS_DIR.mkdir(exist_ok=True)
+    TRAINED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(f"Создана папка '{TRAINED_MODELS_DIR}' для хранения обученных моделей")
     serve()
