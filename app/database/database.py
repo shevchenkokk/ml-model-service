@@ -4,8 +4,7 @@ from pathlib import Path
 from typing import Optional, Any
 from passlib.context import CryptContext
 
-DB_FILE = "ml_model_service.db"
-TRAINED_MODELS_DIR = Path("trained_models")
+from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -15,7 +14,7 @@ def init_database():
     Инициализирует базу данных: создает файл и таблицу
     для хранения данных по обученным моделям, если она ещё не существует.
     """
-    con = sqlite3.connect(DB_FILE)
+    con = sqlite3.connect(settings.DB_FILE)
     cur = con.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS trained_models (
@@ -38,7 +37,7 @@ def add_model_to_database(
     """
     Добавляет запись о новой обученной модели в базу данных.
     """
-    con = sqlite3.connect(DB_FILE)
+    con = sqlite3.connect(settings.DB_FILE)
     cur = con.cursor()
     hyperparameters_json = json.dumps(hyperparameters)
     cur.execute(
@@ -53,7 +52,7 @@ def get_model_from_database(model_id: str) -> Optional[dict[str, Any]]:
     """
     Получает информацию о модели по ее ID.
     """
-    con = sqlite3.connect(DB_FILE)
+    con = sqlite3.connect(settings.DB_FILE)
     con.row_factory = sqlite3.Row
     cur = con.cursor()
     cur.execute(
@@ -76,7 +75,7 @@ def get_trained_models_from_database():
     """
     Получает список всех обученных моделей.
     """
-    con = sqlite3.connect(DB_FILE)
+    con = sqlite3.connect(settings.DB_FILE)
     con.row_factory = sqlite3.Row
     cur = con.cursor()
     cur.execute(
@@ -97,7 +96,7 @@ def delete_model_from_database(model_id: str) -> int:
     """
     Удаляет запись о модели по её ID.
     """
-    con = sqlite3.connect(DB_FILE)
+    con = sqlite3.connect(settings.DB_FILE)
     cur = con.cursor()
     cur.execute(
         "DELETE FROM trained_models WHERE id = ?",
@@ -113,7 +112,7 @@ def update_model_in_database(model_id: str, new_hyperparameters: dict) -> int:
     """
     Обновляет информацию о модели (гиперпараметры).
     """
-    con = sqlite3.connect(DB_FILE)
+    con = sqlite3.connect(settings.DB_FILE)
     cur = con.cursor()
 
     hyperparameters_json = json.dumps(new_hyperparameters)
@@ -131,7 +130,7 @@ def create_users_table():
     """
     Создает таблицу users, если она не существует
     """
-    con = sqlite3.connect(DB_FILE)
+    con = sqlite3.connect(settings.DB_FILE)
     cur = con.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -148,7 +147,7 @@ def create_user_in_database(username: str, password: str) -> dict:
     Создает нового пользователя в БД. Хэширует пароль перед сохранением.
     Возвращает данные о созданном пользователе.
     """
-    con = sqlite3.connect(DB_FILE)
+    con = sqlite3.connect(settings.DB_FILE)
     cur = con.cursor()
     hashed_password = pwd_context.hash(password)
     try:
@@ -169,7 +168,7 @@ def get_user_from_database(username: str) -> Optional[dict]:
     """
     Находит пользователя в БД по его имени и возвращает инфу по нему
     """
-    con = sqlite3.connect(DB_FILE)
+    con = sqlite3.connect(settings.DB_FILE)
     con.row_factory = sqlite3.Row
     cur = con.cursor()
 

@@ -1,35 +1,24 @@
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from pydantic import BaseModel
-from passlib.context import CryptContext
-import os
-from dotenv import load_dotenv
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
-from jose import jwt, JWTError
 
-from database import get_user_from_database
-import logging
-logging.getLogger('passlib').setLevel(logging.ERROR)
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 
-load_dotenv()
+from app.core.config import settings
+from app.database.database import get_user_from_database
+from app.schemas.schemas import User
 
-SECRET_KEY = os.getenv("SECRET_KEY", "default_key")
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-ALGORITHM = "HS256"
+logging.getLogger("passlib").setLevel(logging.ERROR)
+
+SECRET_KEY = settings.SECRET_KEY
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
+ALGORITHM = settings.ALGORITHM
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-
-class User(BaseModel):
-    username: str
-    hashed_password: str
-
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
