@@ -42,7 +42,7 @@ poetry run uvicorn app.main:app --reload
 
 2. Интерактивный дашборд
 ```bash
-poetry run streamlit run dashboard.py
+poetry run streamlit run dashboard/dashboard.py
 ```
 
 Дашборд будет доступен по адресу `http://localhost:8501`.
@@ -52,14 +52,14 @@ poetry run streamlit run dashboard.py
 
 **Для проверки работы gRPC** нужно запустить gRPC сервер:
 ```bash
-poetry run python grpc_server.py
+poetry run python grpc/grpc_server.py
 ```
 
 После запуска вы должны увидеть, что сервер успешно запущен и база данных инициализирована.
 
 Далее можно выполнить в отдельном терминале команду:
 ```bash
-poetry run python grpc_client.py
+poetry run python grpc/grpc_client.py
 ```
 
 Эта команда выполнит полный цикл операций (получение списка доступных моделей, обучение модели, получение списка обученных моделей, получение предсказаний, удаление модели, получение списка обученных моделей) и выведет результаты в консоль.
