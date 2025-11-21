@@ -1,9 +1,6 @@
 import grpc
 from concurrent import futures
 import logging
-import uuid
-import joblib
-from pathlib import Path
 
 from google.protobuf.json_format import MessageToDict
 from google.protobuf.struct_pb2 import Struct
@@ -13,17 +10,15 @@ from generated import (
     ml_model_service_pb2_grpc
 )
 from app.core.config import settings
-from app.database.database import (
-    init_database,
-    add_model_to_database,
-    get_trained_models_from_database,
-    get_model_from_database,
-    delete_model_from_database,
-    update_model_in_database
+from app.database.database import init_database
+from app.services import models as model_service
+from app.services.models import (
+    AVAILABLE_MODELS,
+    ModelFileMissingError,
+    ModelNotSupportedError,
+    ModelServiceError,
+    TrainedModelNotFoundError,
 )
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from lightgbm import LGBMClassifier
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,17 +28,11 @@ logger = logging.getLogger(__name__)
 
 TRAINED_MODELS_DIR = settings.TRAINED_MODELS_DIR
 
-AVAILABLE_MODELS = {
-    "Логистическая регрессия": "logistic_regression",
-    "Случайный лес": "random_forest",
-    "Градиентный бустинг (LightGBM)": "lightgbm"
-}
-
 
 class MLModelService(ml_model_service_pb2_grpc.MLModelServiceServicer):
     def GetAvailableModels(self, request, context):
         """
-        Процедура для получения всех доступных моделей
+        Процедура для получения всех доступных моделей.
         """
         logger.info("Запрошен список доступных моделей")
         return ml_model_service_pb2.GetAvailableModelsResponse(models=AVAILABLE_MODELS)
@@ -51,22 +40,10 @@ class MLModelService(ml_model_service_pb2_grpc.MLModelServiceServicer):
 
     def TrainModel(self, request, context):
         """
-        Процедура для обучения модели
+        Процедура для обучения модели.
         """
         model_name = request.model_name
         logger.info(f"Получен запрос на обучение модели: {model_name}")
-
-        if model_name not in AVAILABLE_MODELS.values():
-            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
-            context.set_details(f"Модель '{model_name}' не поддерживается")
-            return ml_model_service_pb2.TrainResponse()
-
-        if model_name == "logistic_regression":
-            model_cls = LogisticRegression
-        elif model_name == "random_forest":
-            model_cls = RandomForestClassifier
-        else:
-            model_cls = LGBMClassifier
 
         try:
             hyperparameters = MessageToDict(request.hyperparameters)
@@ -77,42 +54,35 @@ class MLModelService(ml_model_service_pb2_grpc.MLModelServiceServicer):
             features = [list(feature.values) for feature in request.features]
             target = list(request.target)
 
-            # создаём инстанс модели и фитим на переданные данные
-            model = model_cls(**hyperparameters)
-            model.fit(features, target)
-
-            # генерируем id и сохраняем обученную модель в файл
-            model_id = str(uuid.uuid4())
-            model_path = TRAINED_MODELS_DIR / f"{model_id}.joblib"
-            joblib.dump(model, model_path)
-
-            # сохраняем запись об обученной модели в локальную БД
-            add_model_to_database(
-                model_id=model_id,
+            trained_model_id = model_service.train_model(
                 model_name=model_name,
                 hyperparameters=hyperparameters,
-                model_path=model_path
+                features=features,
+                target=target,
             )
-
-            logger.info(f"Обучение модели '{model_name}' завершено. ID модели: {model_id}")
+            logger.info(f"Обучение модели '{model_name}' завершено. ID модели: {trained_model_id}")
 
             return ml_model_service_pb2.TrainModelResponse(
-                message=f"Модель '{model_name}' успешно обучена. ID: {model_id}",
-                trained_model_id=model_id
+                message=f"Модель '{model_name}' успешно обучена. ID: {trained_model_id}",
+                trained_model_id=trained_model_id
             )
-        except Exception as e:
+        except ModelNotSupportedError as e:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details(str(e))
+            return ml_model_service_pb2.TrainModelResponse()
+        except ModelServiceError as e:
             logger.error(f"Возникла ошибка при обучении модели: {e}")
             context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(f"Возникла ошибка при обучении модели: {e}")
+            context.set_details(str(e))
             return ml_model_service_pb2.TrainModelResponse()
 
 
     def GetTrainedModels(self, request, context):
         """
-        Процедура для получения списка всех обученных моделей
+        Процедура для получения списка всех обученных моделей.
         """
         logger.info("Запрошен список обученных моделей")
-        models_from_database = get_trained_models_from_database()
+        models_from_database = model_service.list_trained_models()
 
         resp_models = []
         for model_info in models_from_database:
@@ -129,74 +99,59 @@ class MLModelService(ml_model_service_pb2_grpc.MLModelServiceServicer):
 
     def Predict(self, request, context):
         """
-        Процедура для получения предсказаний
+        Процедура для получения предсказаний.
         """
         model_id = request.model_id
 
         logger.info(f"Получен запрос на получение предсказаний для модели с ID: '{model_id}'")
-        model_info = get_model_from_database(model_id)
-        if not model_info:
-            context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details(f"Модель с ID '{model_id}' не найдена")
-            return ml_model_service_pb2.ModelPredictResponse()
         try:
-            model_path = model_info["model_path"]
-            model = joblib.load(model_path)
-
             features = [list(feature.values) for feature in request.features]
-            preds = model.predict(features)
+            preds = model_service.predict_model(model_id=model_id, features=features)
 
             return ml_model_service_pb2.ModelPredictResponse(
                 model_id=model_id,
-                preds=preds.tolist()
+                preds=preds
             )
-        except Exception as e:
+        except TrainedModelNotFoundError as e:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(str(e))
+            return ml_model_service_pb2.ModelPredictResponse()
+        except ModelFileMissingError as e:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(str(e))
+            return ml_model_service_pb2.ModelPredictResponse()
+        except ModelServiceError as e:
             logger.error(f"Ошибка при получении предсказаний для модели с ID '{model_id}': {e}")
             context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(f"Ошибка при получении предсказаний: {e}")
+            context.set_details(str(e))
             return ml_model_service_pb2.ModelPredictResponse()
 
 
     def DeleteModel(self, request, context):
         """
-        Процедура для удаления существующей модели
+        Процедура для удаления существующей модели.
         """
         model_id = request.model_id
         logger.info(f"Получен запрос на удаление модели с ID: '{model_id}'")
-        model_info = get_model_from_database(model_id)
-        if not model_info:
+        try:
+            model_service.delete_trained_model(model_id)
+            return ml_model_service_pb2.DeleteModelResponse(message=f"Модель с ID '{model_id}' успешно удалена")
+        except TrainedModelNotFoundError as exc:
             context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details(f"Модель с ID '{model_id}' не найдена")
+            context.set_details(str(exc))
             return ml_model_service_pb2.DeleteModelResponse()
-
-        delete_model_from_database(model_id)
-        model_path = Path(model_info["model_path"])
-        model_path.unlink(missing_ok=True)
-        logger.info(f"Файл модели '{model_path}' успешно удален")
-
-        return ml_model_service_pb2.DeleteModelResponse(message=f"Модель с ID '{model_id}' успешно удалена")
+        except ModelServiceError as exc:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(exc))
+            return ml_model_service_pb2.DeleteModelResponse()
 
 
     def RetrainModel(self, request, context):
         """
-        Процедура для переобучения существующей модели
+        Процедура для переобучения существующей модели.
         """
         model_id = request.model_id
         logger.info(f"Получен запрос на переобучение модели с ID: '{model_id}'")
-
-        model_info = get_model_from_database(model_id)
-        if not model_info:
-            context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details(f"Модель с ID '{model_id}' не найдена")
-            return ml_model_service_pb2.ModelRetrainResponse()
-
-        model_name = model_info["model_name"]
-        if model_name == "logistic_regression":
-            model_cls = LogisticRegression
-        elif model_name == "random_forest":
-            model_cls = RandomForestClassifier
-        else:
-            model_cls = LGBMClassifier
 
         try:
             hyperparameters = MessageToDict(request.hyperparameters)
@@ -207,28 +162,25 @@ class MLModelService(ml_model_service_pb2_grpc.MLModelServiceServicer):
             features = [list(feature.values) for feature in request.features]
             target = list(request.target)
 
-            # создаём инстанс модели и фитим на переданные данные
-            model = model_cls(**hyperparameters)
-            model.fit(features, target)
-
-            # перезаписываем файл модели
-            model_path = TRAINED_MODELS_DIR / f"{model_id}.joblib"
-            joblib.dump(model, model_path)
-            logger.info(f"Файл модели {model_path} успешно перезаписан")
-
-            # обновляем инфу по модели в БД
-            update_model_in_database(model_id, hyperparameters)
-
-            logger.info(f"Переобучение модели '{model_name}' завершено. ID модели: {model_id}")
-
+            model_service.retrain_model(
+                model_id=model_id,
+                hyperparameters=hyperparameters,
+                features=features,
+                target=target,
+            )
+            logger.info(f"Переобучение модели завершено. ID модели: {model_id}")
             return ml_model_service_pb2.RetrainModelResponse(
                 message=f"Модель с ID '{model_id}' успешно переобучена"
             )
-        except Exception as e:
+        except TrainedModelNotFoundError as e:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(str(e))
+            return ml_model_service_pb2.RetrainModelResponse()
+        except ModelServiceError as e:
             logger.error(f"Ошибка при переобучении модели с ID '{model_id}': {e}")
             context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(f"Возникла ошибка при переобучении модели: {e}")
-            return ml_model_service_pb2.RetrainResponse()
+            context.set_details(str(e))
+            return ml_model_service_pb2.RetrainModelResponse()
 
 
 def serve():
