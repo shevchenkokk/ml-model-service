@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from app.api.api import router as api_router
 from app.core.config import settings
 from app.database.database import create_users_table, init_database
+from app.storage.dvc import setup_dvc_remote
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,6 +29,10 @@ async def startup_event():
     init_database()
     create_users_table()
     settings.TRAINED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # настраиваем DVC remote для версионирования датасетов
+    setup_dvc_remote()
+
     logger.info("База данных и директория с моделями готовы к работе")
 
 

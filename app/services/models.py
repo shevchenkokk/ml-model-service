@@ -21,6 +21,7 @@ from app.storage.s3 import (
     download_model_artifact,
     upload_model_artifact,
 )
+from app.storage.dvc import save_dataset, version_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,15 @@ def train_model(
     target: Sequence[int],
 ) -> str:
     """Обучает модель и сохраняет её."""
+    model_id = str(uuid.uuid4())
+    
+    # cохраняем датасет и версионируем через DVC
+    try:
+        dataset_path = save_dataset(model_id, list(features), list(target), dataset_type="train")
+        version_dataset(dataset_path)
+    except Exception as e:
+        logger.warning("Не удалось сохранить датасет через DVC: %s", e)
+    
     model_cls = _get_model_class(model_name)
 
     try:
@@ -76,7 +86,6 @@ def train_model(
         logger.exception("Ошибка при обучении модели %s", model_name)
         raise ModelServiceError(f"Ошибка при обучении модели: {e}") from e
 
-    model_id = str(uuid.uuid4())
     TRAINED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     model_path = TRAINED_MODELS_DIR / f"{model_id}.joblib"
     joblib.dump(model, model_path)
@@ -153,6 +162,14 @@ def retrain_model(
     target: Sequence[int],
 ) -> None:
     model_info = _get_model_info_or_raise(model_id)
+    
+    # cохраняем датасет для переобучения и версионируем через DVC
+    try:
+        dataset_path = save_dataset(model_id, list(features), list(target), dataset_type="retrain")
+        version_dataset(dataset_path)
+    except Exception as e:
+        logger.warning("Не удалось сохранить датасет переобучения через DVC: %s", e)
+    
     model_cls = _get_model_class(model_info["model_name"])
 
     try:
