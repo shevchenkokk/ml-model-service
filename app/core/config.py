@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     S3_BUCKET: str | None = None
     S3_MODELS_PREFIX: str = "models/"
 
+    # настройки MLflow
+    MLFLOW_TRACKING_URI: str | None = None
+    MLFLOW_EXPERIMENT_NAME: str = "ml-model-service"
+
     class Config:
         env_file = ".env"
 

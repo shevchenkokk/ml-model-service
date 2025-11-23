@@ -7,6 +7,7 @@ import joblib
 from lightgbm import LGBMClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
 from app.core.config import settings
 from app.database.database import (
@@ -22,6 +23,7 @@ from app.storage.s3 import (
     upload_model_artifact,
 )
 from app.storage.dvc import save_dataset, version_dataset
+from app.tracking.mlflow import log_training_run, log_retraining_run 
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,27 @@ def _get_model_class(model_name: str):
     raise ModelNotSupportedError(f"Модель '{model_name}' не поддерживается")
 
 
+def _calculate_metrics(
+    model: Any, features: Sequence[Sequence[float]], target: Sequence[int]
+) -> dict[str, float] | None:
+    """
+    Вычисляет метрики модели на данных.
+    """
+    try:
+        preds = model.predict(features)
+
+        metrics = {
+            "accuracy": float(accuracy_score(target, preds)),
+            "precision": float(precision_score(target, preds, average="weighted", zero_division=0)),
+            "recall": float(recall_score(target, preds, average="weighted", zero_division=0)),
+            "f1": float(f1_score(target, preds, average="weighted", zero_division=0)),
+        }
+        return metrics
+    except Exception as e:
+        logger.warning("Не удалось вычислить метрики: %s", e)
+        return None
+
+
 def train_model(
     model_name: str,
     hyperparameters: dict[str, Any],
@@ -86,10 +109,26 @@ def train_model(
         logger.exception("Ошибка при обучении модели %s", model_name)
         raise ModelServiceError(f"Ошибка при обучении модели: {e}") from e
 
+    # вычисляем метрики для логирования
+    metrics = _calculate_metrics(model, features, target)
+
     TRAINED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     model_path = TRAINED_MODELS_DIR / f"{model_id}.joblib"
     joblib.dump(model, model_path)
     upload_model_artifact(model_id, model_path)
+
+    # логируем в MLflow
+    try:
+        log_training_run(
+            model_id=model_id,
+            model_name=model_name,
+            model=model,
+            hyperparameters=hyperparameters,
+            metrics=metrics,
+            model_path=model_path,
+        )
+    except Exception as e:
+        logger.warning("Не удалось залогировать в MLflow: %s", e)
 
     add_model_to_database(
         model_id=model_id,
@@ -179,9 +218,26 @@ def retrain_model(
         logger.exception("Ошибка при переобучении модели %s", model_id)
         raise ModelServiceError(f"Ошибка при переобучении модели: {e}") from e
 
+    # вычисляем метрики для логирования
+    metrics = _calculate_metrics(new_model, features, target)
+
     model_path = Path(model_info["model_path"])
     TRAINED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(new_model, model_path)
     upload_model_artifact(model_id, model_path)
+    
+    # логируем в MLflow
+    try:
+        log_retraining_run(
+            model_id=model_id,
+            model_name=model_info["model_name"],
+            model=new_model,
+            hyperparameters=hyperparameters,
+            metrics=metrics,
+            model_path=model_path,
+        )
+    except Exception as e:
+        logger.warning("Не удалось залогировать переобучение в MLflow: %s", e)
+    
     update_model_in_database(model_id, hyperparameters)
     logger.info("Модель %s успешно переобучена", model_id)
