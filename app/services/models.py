@@ -16,6 +16,11 @@ from app.database.database import (
     get_trained_models_from_database,
     update_model_in_database,
 )
+from app.storage.s3 import (
+    delete_model_artifact,
+    download_model_artifact,
+    upload_model_artifact,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +80,7 @@ def train_model(
     TRAINED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     model_path = TRAINED_MODELS_DIR / f"{model_id}.joblib"
     joblib.dump(model, model_path)
+    upload_model_artifact(model_id, model_path)
 
     add_model_to_database(
         model_id=model_id,
@@ -104,11 +110,18 @@ def predict_model(model_id: str, features: Sequence[Sequence[float]]) -> list[in
     model_info = _get_model_info_or_raise(model_id)
     model_path = Path(model_info["model_path"])
 
+    # если файл отсутствует локально, пытаемся скачать из S3
+    if not model_path.exists():
+        fetched = download_model_artifact(model_id, model_path)
+        if not fetched:
+            logger.error("Файл для модели '%s' не найден локально и в S3: %s", model_id, model_path)
+            raise ModelFileMissingError("Файл модели не найден на сервере")
+
     try:
         model = joblib.load(model_path)
-    except FileNotFoundError as e:
-        logger.error("Файл для модели '%s' не найден: %s", model_id, model_path)
-        raise ModelFileMissingError("Файл модели не найден на сервере") from e
+    except Exception as e:
+        logger.exception("Ошибка при загрузке модели %s из файла %s", model_id, model_path)
+        raise ModelFileMissingError(f"Не удалось загрузить модель из файла: {e}") from e
 
     try:
         preds = model.predict(features)
@@ -129,6 +142,7 @@ def delete_trained_model(model_id: str) -> None:
 
     model_path = Path(model_info["model_path"])
     model_path.unlink(missing_ok=True)
+    delete_model_artifact(model_id)
     logger.info("Модель %s успешно удалена", model_id)
 
 
@@ -151,5 +165,6 @@ def retrain_model(
     model_path = Path(model_info["model_path"])
     TRAINED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(new_model, model_path)
+    upload_model_artifact(model_id, model_path)
     update_model_in_database(model_id, hyperparameters)
     logger.info("Модель %s успешно переобучена", model_id)
