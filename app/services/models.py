@@ -8,6 +8,7 @@ from lightgbm import LGBMClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.model_selection import learning_curve
 
 from app.core.config import settings
 from app.database.database import (
@@ -84,6 +85,36 @@ def _calculate_metrics(
         return None
 
 
+def _calculate_learning_curve_data(
+    model: Any,
+    features: Sequence[Sequence[float]],
+    target: Sequence[int],
+) -> dict[str, list[float]] | None:
+    """
+    Строит данные для кривой обучения.
+    """
+    try:
+        train_sizes, train_scores, validation_scores = learning_curve(
+            estimator=model,
+            X=features,
+            y=target,
+            train_sizes=[0.2, 0.4, 0.6, 0.8, 1.0],
+            cv=3,
+            scoring="f1_weighted",
+            shuffle=True,
+            random_state=42,
+            n_jobs=-1,
+        )
+        return {
+            "train_sizes": train_sizes.tolist(),
+            "train_scores": train_scores.mean(axis=1).tolist(),
+            "validation_scores": validation_scores.mean(axis=1).tolist(),
+        }
+    except Exception as e:
+        logger.warning("Не удалось построить кривую обучения: %s", e)
+        return None
+
+
 def train_model(
     model_name: str,
     hyperparameters: dict[str, Any],
@@ -111,6 +142,7 @@ def train_model(
 
     # вычисляем метрики для логирования
     metrics = _calculate_metrics(model, features, target)
+    learning_curve_data = _calculate_learning_curve_data(model, features, target)
 
     TRAINED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     model_path = TRAINED_MODELS_DIR / f"{model_id}.joblib"
@@ -126,6 +158,7 @@ def train_model(
             hyperparameters=hyperparameters,
             metrics=metrics,
             model_path=model_path,
+            learning_curve=learning_curve_data,
         )
     except Exception as e:
         logger.warning("Не удалось залогировать в MLflow: %s", e)
@@ -220,6 +253,7 @@ def retrain_model(
 
     # вычисляем метрики для логирования
     metrics = _calculate_metrics(new_model, features, target)
+    learning_curve_data = _calculate_learning_curve_data(new_model, features, target)
 
     model_path = Path(model_info["model_path"])
     TRAINED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -235,6 +269,7 @@ def retrain_model(
             hyperparameters=hyperparameters,
             metrics=metrics,
             model_path=model_path,
+            learning_curve=learning_curve_data,
         )
     except Exception as e:
         logger.warning("Не удалось залогировать переобучение в MLflow: %s", e)

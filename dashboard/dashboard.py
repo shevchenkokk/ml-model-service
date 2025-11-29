@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 import json
+import os
 
 st.set_page_config(
     page_title="Управление ML-моделями",
@@ -9,7 +10,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-API_URL = "http://127.0.0.1:8000/api"
+API_URL = os.getenv("API_URL", "http://127.0.0.1:8000/api")
 
 
 # ------ ручки для обращения к API ------

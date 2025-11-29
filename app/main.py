@@ -45,3 +45,15 @@ async def shutdown_event():
 
 
 app.include_router(api_router, prefix="/api")
+
+
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint для мониторинга состояния сервиса.
+    """
+    return {
+        "status": "healthy",
+        "service": "ml-model-service",
+        "version": "0.1.0"
+    }
