@@ -69,18 +69,18 @@ class S3Storage:
             self.bucket.download_file(key, str(destination))
             logger.info("Модель %s скачана из S3", model_id)
             return True
-        except ClientError as exc:
-            error_code = exc.response.get("Error", {}).get("Code")
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
             if error_code in {"404", "NoSuchKey"}:
                 logger.warning("Модель %s отсутствует в S3", model_id)
                 return False
             raise S3StorageError(
                 f"Не удалось скачать модель {model_id} из S3"
-            ) from exc
-        except BotoCoreError as exc:
+            ) from e
+        except BotoCoreError as e:
             raise S3StorageError(
                 f"Не удалось скачать модель {model_id} из S3"
-            ) from exc
+            ) from e
 
 
     def delete_model(self, model_id: str) -> None:
@@ -89,8 +89,8 @@ class S3Storage:
         try:
             self.bucket.Object(key).delete()
             logger.info("Модель %s удалена из S3", model_id)
-        except (ClientError, BotoCoreError) as exc:
-            raise S3StorageError(f"Не удалось удалить модель {model_id} из S3") from exc
+        except (ClientError, BotoCoreError) as e:
+            raise S3StorageError(f"Не удалось удалить модель {model_id} из S3") from e
 
 
 def _is_s3_configured() -> bool:
@@ -113,7 +113,7 @@ def _get_storage_instance() -> S3Storage:
     if _storage_instance is not None:
         return _storage_instance
     
-    if not _is_configured():
+    if not _is_s3_configured():
         raise S3StorageError("Интеграция с S3/MinIO не настроена")
 
     _storage_instance = S3Storage(
@@ -129,7 +129,7 @@ def _get_storage_instance() -> S3Storage:
 
 def get_storage() -> Optional[S3Storage]:
     """Безопасно возвращает клиент S3, либо None, если интеграция отключена."""
-    if not _is_configured():
+    if not _is_s3_configured():
         return None
     try:
         return _get_storage_instance()
