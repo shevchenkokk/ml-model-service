@@ -95,7 +95,6 @@ services:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - MLFLOW_EXPERIMENT_NAME=ml-model-service
     volumes:
-      - ./ml_model_service.db:/app/ml_model_service.db
       - ./trained_models:/app/trained_models
       - ./data:/app/data
     depends_on:
