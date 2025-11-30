@@ -128,7 +128,7 @@ def update_model_in_database(model_id: str, new_hyperparameters: dict) -> int:
 
 def create_users_table():
     """
-    Создает таблицу users, если она не существует
+    Создает таблицу users, если она не существует.
     """
     con = sqlite3.connect(settings.DB_FILE)
     cur = con.cursor()
@@ -166,7 +166,7 @@ def create_user_in_database(username: str, password: str) -> dict:
 
 def get_user_from_database(username: str) -> Optional[dict]:
     """
-    Находит пользователя в БД по его имени и возвращает инфу по нему
+    Находит пользователя в БД по его имени и возвращает инфу по нему.
     """
     con = sqlite3.connect(settings.DB_FILE)
     con.row_factory = sqlite3.Row
