@@ -1,0 +1,22 @@
+# хранение конфигурации в configmap (несекретные настройки)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ml-model-service-config
+  namespace: ml-model-service
+data:
+  DB_FILE: "/tmp/ml_model_service.db"
+  TRAINED_MODELS_DIR: "/tmp/trained_models"
+  S3_ENABLED: "true"
+  S3_ENDPOINT: "http://minio:9000"
+  S3_REGION: "us-east-1"
+  S3_BUCKET: "ml-model-service"
+  S3_MODELS_PREFIX: "models/"
+  MLFLOW_TRACKING_URI: "http://mlflow:5000"
+  MLFLOW_EXPERIMENT_NAME: "ml-model-service"
+  MLFLOW_S3_ENDPOINT_URL: "http://minio:9000"
+  MLFLOW_DEFAULT_ARTIFACT_ROOT: "s3://mlflow-artifacts/"
+  MLFLOW_BACKEND_STORE_URI: "sqlite:///mlflow/mlflow.db"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+  API_URL: "http://api:8000/api"
+  AWS_DEFAULT_REGION: "us-east-1"

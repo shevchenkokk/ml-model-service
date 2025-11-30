@@ -1,0 +1,63 @@
+# deployment и service для дашборда
+# 1 реплика, init container для ожидания API
+# сервис на порте 8501
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: ml-model-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dashboard
+  template:
+    metadata:
+      labels:
+        app: dashboard
+    spec:
+      containers:
+      - name: dashboard
+        image: ml-model-service:latest
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        - |
+          streamlit run dashboard/dashboard.py \
+            --server.port 8501 \
+            --server.address 0.0.0.0
+        ports:
+        - containerPort: 8501
+          name: http
+        env:
+        - name: API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: API_URL
+      initContainers:
+      - name: wait-for-api
+        image: curlimages/curl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until curl -f http://api:8000/health; do
+            echo "Ожидание API..."
+            sleep 2
+          done
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  namespace: ml-model-service
+spec:
+  selector:
+    app: dashboard
+  ports:
+  - port: 8501
+    targetPort: 8501
+  type: NodePort

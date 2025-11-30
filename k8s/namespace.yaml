@@ -1,0 +1,5 @@
+# namespace для изоляции ресурсов
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-model-service
