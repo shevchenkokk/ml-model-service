@@ -12,8 +12,7 @@ env/
 *.sqlite3
 ml_model_service.db
 trained_models/
-data/processed/
-data/raw/
+data/
 .git/
 .gitignore
 .dvc/
@@ -32,3 +31,6 @@ htmlcov/
 *.swp
 *.swo
 *~
+docker-compose.yml
+k8s/
+scripts/

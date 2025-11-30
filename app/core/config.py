@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 class Settings(BaseSettings):
-    DB_FILE: Path = Path("ml_model_service.db")
+    DB_FILE: Path = Path("data/ml_model_service.db")
     TRAINED_MODELS_DIR: Path = Path("trained_models")
 
     # настройки аутентификации
