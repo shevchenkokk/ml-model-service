@@ -1,0 +1,22 @@
+# job для инициализации бакетов после запуска MinIO
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-init
+  namespace: ml-model-service
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: mc
+        image: minio/mc:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          sleep 10
+          mc alias set myminio http://minio:9000 minioadmin minioadmin
+          mc mb myminio/ml-model-service --ignore-existing || true
+          mc mb myminio/mlflow-artifacts --ignore-existing || true
+          echo "Бакеты созданы успешно"

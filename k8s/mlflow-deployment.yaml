@@ -1,0 +1,97 @@
+# deployment и service для MLflow
+# 1 реплика, init container для ожидания MinIO
+# устанавливает mlflow и boto3
+# сервис на порту 5000
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: ml-model-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow
+  template:
+    metadata:
+      labels:
+        app: mlflow
+    spec:
+      containers:
+      - name: mlflow
+        image: python:3.10-slim
+        command:
+        - /bin/sh
+        - -c
+        - |
+          pip install --no-cache-dir mlflow boto3
+          mlflow server \
+            --host 0.0.0.0 \
+            --port 5000 \
+            --backend-store-uri $(MLFLOW_BACKEND_STORE_URI) \
+            --default-artifact-root $(MLFLOW_DEFAULT_ARTIFACT_ROOT) \
+            --serve-artifacts \
+            --workers 1
+        ports:
+        - containerPort: 5000
+          name: http
+        env:
+        - name: MLFLOW_BACKEND_STORE_URI
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: MLFLOW_BACKEND_STORE_URI
+        - name: MLFLOW_DEFAULT_ARTIFACT_ROOT
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: MLFLOW_DEFAULT_ARTIFACT_ROOT
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: ml-model-service-secrets
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ml-model-service-secrets
+              key: AWS_SECRET_ACCESS_KEY
+        - name: MLFLOW_S3_ENDPOINT_URL
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: MLFLOW_S3_ENDPOINT_URL
+        - name: MLFLOW_SERVER_ALLOWED_HOSTS
+          value: "*"
+        - name: MLFLOW_DISABLE_REQUEST_LOGGING
+          value: "true"
+        volumeMounts:
+        - name: mlflow-data
+          mountPath: /mlflow
+      volumes:
+      - name: mlflow-data
+        emptyDir: {}
+      initContainers:
+      - name: wait-for-minio
+        image: curlimages/curl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until curl -f http://minio:9000/minio/health/live; do
+            echo "Ожидание MinIO..."
+            sleep 2
+          done
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: ml-model-service
+spec:
+  selector:
+    app: mlflow
+  ports:
+  - port: 5000
+    targetPort: 5000
