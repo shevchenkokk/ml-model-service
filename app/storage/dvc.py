@@ -1,5 +1,6 @@
 import logging
 import subprocess
+import yaml
 from pathlib import Path
 from typing import Optional
 
@@ -23,6 +24,40 @@ def _create_data_dirs() -> None:
     """Создаёт необходимые директории для данных, если их нет."""
     RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
     PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _is_dvc_initialized() -> bool:
+    """Проверяет, инициализирован ли DVC в проекте."""
+    dvc_dir = Path(".dvc")
+    return dvc_dir.exists() and (dvc_dir / "config").exists()
+
+
+def init_dvc() -> None:
+    """
+    Инициализирует DVC в проекте, если он ещё не инициализирован.
+    """
+    if _is_dvc_initialized():
+        logger.debug("DVC уже инициализирован")
+        return
+    
+    if not settings.S3_ENABLED:
+        logger.debug("S3 отключен, пропускаем инициализацию DVC")
+        return
+    
+    try:
+        # инициализируем DVC без git (--no-scm)
+        stdout, stderr, return_code = _run_dvc_command(["init", "--no-scm"])
+        
+        if return_code == 0:
+            logger.info("DVC успешно инициализирован")
+        else:
+            logger.warning(
+                "Не удалось инициализировать DVC: %s. stderr: %s",
+                stdout,
+                stderr,
+            )
+    except DVCError as e:
+        logger.warning("Ошибка при инициализации DVC: %s", e)
 
 
 def _run_dvc_command(cmd: list[str], cwd: Optional[Path] = None) -> tuple[str, str, int]:
@@ -67,14 +102,24 @@ def save_dataset(
     return filepath
 
 
-def version_dataset(dataset_path: Path) -> None:
+def version_dataset(dataset_path: Path) -> Optional[str]:
     """
     Версионирует датасет через DVC и отправляет в MinIO.
     """
     if not settings.S3_ENABLED:
         logger.debug("S3 отключен, пропуск версионирования через DVC")
-        return
+        return None
+
+    # гарантируем настройку remote перед использованием
+    setup_dvc_remote()
     
+    # проверяем, инициализирован ли DVC
+    if not _is_dvc_initialized():
+        logger.warning("DVC не инициализирован, пропуск версионирования датасета")
+        return None
+
+    data_hash = None
+
     try:
         # добавляем файл в DVC
         stdout, stderr, return_code = _run_dvc_command(["add", str(dataset_path)])
@@ -85,12 +130,25 @@ def version_dataset(dataset_path: Path) -> None:
                 dataset_path,
                 stderr,
             )
-            return
+            return None
         
         logger.info("Датасет добавлен в DVC: %s", dataset_path)
+
+        # читаем .dvc файл, чтобы узнать хэш версии
+        dvc_file_path = dataset_path.parent / (dataset_path.name + ".dvc")
         
+        if dvc_file_path.exists():
+            try:
+                with open(dvc_file_path, "r") as f:
+                    dvc_meta = yaml.safe_load(f)
+                    if "outs" in dvc_meta and len(dvc_meta["outs"]) > 0:
+                        data_hash = dvc_meta["outs"][0].get("md5")
+                        logger.info(f"Получен хеш версии данных: {data_hash}")
+            except Exception as e:
+                logger.error(f"Ошибка при чтении .dvc файла: {e}")
+
         # отправляем данные в MinIO через DVC remote
-        stdout, stderr, return_code = _run_dvc_command(["push"])
+        stdout, stderr, return_code = _run_dvc_command(["push", str(dvc_file_path)])
         if return_code == 0:
             logger.info("Датасет отправлен в DVC remote (MinIO)")
         else:
@@ -101,6 +159,8 @@ def version_dataset(dataset_path: Path) -> None:
             )     
     except DVCError as e:
         logger.warning("Ошибка при версионировании датасета через DVC: %s", e)
+    
+    return data_hash
 
 
 def setup_dvc_remote() -> None:
@@ -115,29 +175,28 @@ def setup_dvc_remote() -> None:
         logger.warning("Не все параметры S3 настроены, пропускаем настройку DVC remote")
         return
     
+    # инициализируем DVC, если ещё не инициализирован
+    init_dvc()
+    
+    # если DVC не инициализирован, не можем настроить remote
+    if not _is_dvc_initialized():
+        logger.warning("DVC не инициализирован, пропускаем настройку remote")
+        return
+    
     try:
-        # проверка, есть ли уже remote
-        stdout, stderr, return_code = _run_dvc_command(["remote", "list"])
-        if return_code == 0 and ("minio" in stdout.lower() or "s3" in stdout.lower()):
-            logger.info("DVC remote уже настроен")
-            return
-
         endpoint = settings.S3_ENDPOINT
         bucket = settings.S3_BUCKET
         
         # формируем URL для MinIO
         remote_url = f"s3://{bucket}/dvc"
-        
-        # добавляем remote
-        stdout, stderr, return_code = _run_dvc_command(["remote", "add", "-d", "minio", remote_url])
-        if return_code != 0:
-            logger.warning("Не удалось добавить DVC remote: %s", stderr)
-            return
+
+        _run_dvc_command(["remote", "add", "-d", "-f", "minio", remote_url])
         
         # настройка параметров подключения
         _run_dvc_command(["remote", "modify", "minio", "endpointurl", endpoint])
         _run_dvc_command(["remote", "modify", "minio", "access_key_id", settings.S3_ACCESS_KEY])
         _run_dvc_command(["remote", "modify", "minio", "secret_access_key", settings.S3_SECRET_KEY])
+        _run_dvc_command(["remote", "modify", "minio", "ssl_verify", "false"])
         
         logger.info("DVC remote 'minio' настроен на %s", endpoint)
         

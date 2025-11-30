@@ -127,7 +127,7 @@ def train_model(
     # cохраняем датасет и версионируем через DVC
     try:
         dataset_path = save_dataset(model_id, list(features), list(target), dataset_type="train")
-        version_dataset(dataset_path)
+        dvc_data_hash = version_dataset(dataset_path)
     except Exception as e:
         logger.warning("Не удалось сохранить датасет через DVC: %s", e)
     
@@ -159,6 +159,7 @@ def train_model(
             metrics=metrics,
             model_path=model_path,
             learning_curve=learning_curve_data,
+            tags={"dvc_data_hash": dvc_data_hash} if dvc_data_hash else None 
         )
     except Exception as e:
         logger.warning("Не удалось залогировать в MLflow: %s", e)
@@ -238,7 +239,7 @@ def retrain_model(
     # cохраняем датасет для переобучения и версионируем через DVC
     try:
         dataset_path = save_dataset(model_id, list(features), list(target), dataset_type="retrain")
-        version_dataset(dataset_path)
+        dvc_data_hash = version_dataset(dataset_path)
     except Exception as e:
         logger.warning("Не удалось сохранить датасет переобучения через DVC: %s", e)
     
@@ -270,6 +271,7 @@ def retrain_model(
             metrics=metrics,
             model_path=model_path,
             learning_curve=learning_curve_data,
+            tags={"dvc_data_hash": dvc_data_hash} if dvc_data_hash else None 
         )
     except Exception as e:
         logger.warning("Не удалось залогировать переобучение в MLflow: %s", e)

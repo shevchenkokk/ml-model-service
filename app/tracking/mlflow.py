@@ -66,6 +66,7 @@ def log_training_run(
     metrics: Optional[dict[str, float]] = None,
     model_path: Optional[Path] = None,
     learning_curve: Optional[dict[str, Sequence[float]]] = None,
+    tags: dict[str, str] | None = None, 
 ) -> None:
     """
     Логирует обучение модели в MLflow.
@@ -89,6 +90,10 @@ def log_training_run(
             if metrics:
                 for key, value in metrics.items():
                     mlflow.log_metric(key, value)
+
+            # 
+            if tags:
+                mlflow.set_tags(tags)
 
             # логируем модель
             if model_path and model_path.exists():
@@ -116,6 +121,7 @@ def log_retraining_run(
     metrics: Optional[dict[str, float]] = None,
     model_path: Optional[Path] = None,
     learning_curve: Optional[dict[str, Sequence[float]]] = None,
+    tags: dict[str, str] | None = None,
 ) -> None:
     """
     Логирует переобучение модели в MLflow.
@@ -140,6 +146,9 @@ def log_retraining_run(
             if metrics:
                 for key, value in metrics.items():
                     mlflow.log_metric(key, value)
+
+            if tags:
+                mlflow.set_tags(tags)
 
             # логируем модель
             if model_path and model_path.exists():
