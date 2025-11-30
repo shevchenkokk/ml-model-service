@@ -5,8 +5,8 @@ metadata:
   name: ml-model-service-config
   namespace: ml-model-service
 data:
-  DB_FILE: "/tmp/ml_model_service.db"
-  TRAINED_MODELS_DIR: "/tmp/trained_models"
+  DB_FILE: "/app/data/ml_model_service.db"
+  TRAINED_MODELS_DIR: "/app/trained_models"
   S3_ENABLED: "true"
   S3_ENDPOINT: "http://minio:9000"
   S3_REGION: "us-east-1"
