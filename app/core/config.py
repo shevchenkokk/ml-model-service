@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 
 
@@ -24,8 +24,9 @@ class Settings(BaseSettings):
     MLFLOW_TRACKING_URI: str | None = None
     MLFLOW_EXPERIMENT_NAME: str = "ml-model-service"
 
-    class Config:
+    model_config = SettingsConfigDict(
         env_file = ".env"
+    )
 
 
 settings = Settings()
