@@ -7,6 +7,8 @@ import joblib
 from lightgbm import LGBMClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.model_selection import learning_curve
 
 from app.core.config import settings
 from app.database.database import (
@@ -16,6 +18,13 @@ from app.database.database import (
     get_trained_models_from_database,
     update_model_in_database,
 )
+from app.storage.s3 import (
+    delete_model_artifact,
+    download_model_artifact,
+    upload_model_artifact,
+)
+from app.storage.dvc import save_dataset, version_dataset
+from app.tracking.mlflow import log_training_run, log_retraining_run 
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +64,57 @@ def _get_model_class(model_name: str):
     raise ModelNotSupportedError(f"Модель '{model_name}' не поддерживается")
 
 
+def _calculate_metrics(
+    model: Any, features: Sequence[Sequence[float]], target: Sequence[int]
+) -> dict[str, float] | None:
+    """
+    Вычисляет метрики модели на данных.
+    """
+    try:
+        preds = model.predict(features)
+
+        metrics = {
+            "accuracy": float(accuracy_score(target, preds)),
+            "precision": float(precision_score(target, preds, average="weighted", zero_division=0)),
+            "recall": float(recall_score(target, preds, average="weighted", zero_division=0)),
+            "f1": float(f1_score(target, preds, average="weighted", zero_division=0)),
+        }
+        return metrics
+    except Exception as e:
+        logger.warning("Не удалось вычислить метрики: %s", e)
+        return None
+
+
+def _calculate_learning_curve_data(
+    model: Any,
+    features: Sequence[Sequence[float]],
+    target: Sequence[int],
+) -> dict[str, list[float]] | None:
+    """
+    Строит данные для кривой обучения.
+    """
+    try:
+        train_sizes, train_scores, validation_scores = learning_curve(
+            estimator=model,
+            X=features,
+            y=target,
+            train_sizes=[0.2, 0.4, 0.6, 0.8, 1.0],
+            cv=3,
+            scoring="f1_weighted",
+            shuffle=True,
+            random_state=42,
+            n_jobs=-1,
+        )
+        return {
+            "train_sizes": train_sizes.tolist(),
+            "train_scores": train_scores.mean(axis=1).tolist(),
+            "validation_scores": validation_scores.mean(axis=1).tolist(),
+        }
+    except Exception as e:
+        logger.warning("Не удалось построить кривую обучения: %s", e)
+        return None
+
+
 def train_model(
     model_name: str,
     hyperparameters: dict[str, Any],
@@ -62,6 +122,15 @@ def train_model(
     target: Sequence[int],
 ) -> str:
     """Обучает модель и сохраняет её."""
+    model_id = str(uuid.uuid4())
+    
+    # cохраняем датасет и версионируем через DVC
+    try:
+        dataset_path = save_dataset(model_id, list(features), list(target), dataset_type="train")
+        dvc_data_hash = version_dataset(dataset_path)
+    except Exception as e:
+        logger.warning("Не удалось сохранить датасет через DVC: %s", e)
+    
     model_cls = _get_model_class(model_name)
 
     try:
@@ -71,10 +140,29 @@ def train_model(
         logger.exception("Ошибка при обучении модели %s", model_name)
         raise ModelServiceError(f"Ошибка при обучении модели: {e}") from e
 
-    model_id = str(uuid.uuid4())
+    # вычисляем метрики для логирования
+    metrics = _calculate_metrics(model, features, target)
+    learning_curve_data = _calculate_learning_curve_data(model, features, target)
+
     TRAINED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     model_path = TRAINED_MODELS_DIR / f"{model_id}.joblib"
     joblib.dump(model, model_path)
+    upload_model_artifact(model_id, model_path)
+
+    # логируем в MLflow
+    try:
+        log_training_run(
+            model_id=model_id,
+            model_name=model_name,
+            model=model,
+            hyperparameters=hyperparameters,
+            metrics=metrics,
+            model_path=model_path,
+            learning_curve=learning_curve_data,
+            tags={"dvc_data_hash": dvc_data_hash} if dvc_data_hash else None 
+        )
+    except Exception as e:
+        logger.warning("Не удалось залогировать в MLflow: %s", e)
 
     add_model_to_database(
         model_id=model_id,
@@ -104,11 +192,18 @@ def predict_model(model_id: str, features: Sequence[Sequence[float]]) -> list[in
     model_info = _get_model_info_or_raise(model_id)
     model_path = Path(model_info["model_path"])
 
+    # если файл отсутствует локально, пытаемся скачать из S3
+    if not model_path.exists():
+        fetched = download_model_artifact(model_id, model_path)
+        if not fetched:
+            logger.error("Файл для модели '%s' не найден локально и в S3: %s", model_id, model_path)
+            raise ModelFileMissingError("Файл модели не найден на сервере")
+
     try:
         model = joblib.load(model_path)
-    except FileNotFoundError as e:
-        logger.error("Файл для модели '%s' не найден: %s", model_id, model_path)
-        raise ModelFileMissingError("Файл модели не найден на сервере") from e
+    except Exception as e:
+        logger.exception("Ошибка при загрузке модели %s из файла %s", model_id, model_path)
+        raise ModelFileMissingError(f"Не удалось загрузить модель из файла: {e}") from e
 
     try:
         preds = model.predict(features)
@@ -129,6 +224,7 @@ def delete_trained_model(model_id: str) -> None:
 
     model_path = Path(model_info["model_path"])
     model_path.unlink(missing_ok=True)
+    delete_model_artifact(model_id)
     logger.info("Модель %s успешно удалена", model_id)
 
 
@@ -139,6 +235,14 @@ def retrain_model(
     target: Sequence[int],
 ) -> None:
     model_info = _get_model_info_or_raise(model_id)
+    
+    # cохраняем датасет для переобучения и версионируем через DVC
+    try:
+        dataset_path = save_dataset(model_id, list(features), list(target), dataset_type="retrain")
+        dvc_data_hash = version_dataset(dataset_path)
+    except Exception as e:
+        logger.warning("Не удалось сохранить датасет переобучения через DVC: %s", e)
+    
     model_cls = _get_model_class(model_info["model_name"])
 
     try:
@@ -148,8 +252,29 @@ def retrain_model(
         logger.exception("Ошибка при переобучении модели %s", model_id)
         raise ModelServiceError(f"Ошибка при переобучении модели: {e}") from e
 
+    # вычисляем метрики для логирования
+    metrics = _calculate_metrics(new_model, features, target)
+    learning_curve_data = _calculate_learning_curve_data(new_model, features, target)
+
     model_path = Path(model_info["model_path"])
     TRAINED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(new_model, model_path)
+    upload_model_artifact(model_id, model_path)
+    
+    # логируем в MLflow
+    try:
+        log_retraining_run(
+            model_id=model_id,
+            model_name=model_info["model_name"],
+            model=new_model,
+            hyperparameters=hyperparameters,
+            metrics=metrics,
+            model_path=model_path,
+            learning_curve=learning_curve_data,
+            tags={"dvc_data_hash": dvc_data_hash} if dvc_data_hash else None 
+        )
+    except Exception as e:
+        logger.warning("Не удалось залогировать переобучение в MLflow: %s", e)
+    
     update_model_in_database(model_id, hyperparameters)
     logger.info("Модель %s успешно переобучена", model_id)

@@ -4,5 +4,10 @@ __pycache__/
 .ruff_cache
 .venv
 
-trained_models
+trained_models/
 ml_model_service.db
+
+data/
+
+.dvc/cache
+.dvc/tmp

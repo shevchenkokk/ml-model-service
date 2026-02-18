@@ -1,0 +1,169 @@
+# deployment и service для API
+# 1 реплика, health checks на /health
+# NodePort для доступа извне
+# сервис на порте 8000
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: ml-model-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+      - name: api
+        image: ml-model-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+        volumeMounts:
+        - name: data-storage
+          mountPath: /app/data
+        - name: models-storage
+          mountPath: /app/trained_models
+        env:
+        - name: DB_FILE
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: DB_FILE
+        - name: TRAINED_MODELS_DIR
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: TRAINED_MODELS_DIR
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ml-model-service-secrets
+              key: SECRET_KEY
+        - name: ACCESS_TOKEN_EXPIRE_MINUTES
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: ACCESS_TOKEN_EXPIRE_MINUTES
+        - name: S3_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: S3_ENABLED
+        - name: S3_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: S3_ENDPOINT
+        - name: S3_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: S3_REGION
+        - name: S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ml-model-service-secrets
+              key: S3_ACCESS_KEY
+        - name: S3_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ml-model-service-secrets
+              key: S3_SECRET_KEY
+        - name: S3_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: S3_BUCKET
+        - name: S3_MODELS_PREFIX
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: S3_MODELS_PREFIX
+        - name: MLFLOW_TRACKING_URI
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: MLFLOW_TRACKING_URI
+        - name: MLFLOW_EXPERIMENT_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: MLFLOW_EXPERIMENT_NAME
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: ml-model-service-secrets
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ml-model-service-secrets
+              key: AWS_SECRET_ACCESS_KEY
+        - name: MLFLOW_S3_ENDPOINT_URL
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: MLFLOW_S3_ENDPOINT_URL
+        - name: AWS_DEFAULT_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: ml-model-service-config
+              key: AWS_DEFAULT_REGION
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: data-storage
+        emptyDir: {}
+      - name: models-storage
+        emptyDir: {}
+      initContainers:
+      - name: wait-for-minio
+        image: curlimages/curl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until curl -f http://minio:9000/minio/health/live; do
+            echo "Ожидание MinIO..."
+            sleep 2
+          done
+      - name: wait-for-mlflow
+        image: curlimages/curl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until curl -f http://mlflow:5000/health; do
+            echo "Ожидание MLflow..."
+            sleep 2
+          done
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: ml-model-service
+spec:
+  selector:
+    app: api
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: NodePort

@@ -23,14 +23,14 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Проверяет, соответствует ли введённый пользователем пароль хэшу
+    Проверяет, соответствует ли введённый пользователем пароль хэшу.
     """
     return pwd_context.verify(plain_password, hashed_password)
 
 
 def get_user(username: str) -> Optional[User]:
     """
-    Получает пользователя из БД и возвращает его в виде Pydantic
+    Получает пользователя из БД и возвращает его в виде Pydantic.
     """
     user_info = get_user_from_database(username)
     if user_info:
@@ -40,7 +40,7 @@ def get_user(username: str) -> Optional[User]:
 
 def create_access_token(data: dict):
     """
-    Создает JWT-токен
+    Создает JWT-токен.
     """
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -51,7 +51,7 @@ def create_access_token(data: dict):
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
     """
-    Декодирует и валидирует JWT-токен, возвращая информацию о пользователе
+    Декодирует и валидирует JWT-токен, возвращая информацию о пользователе.
     """
     creds_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
