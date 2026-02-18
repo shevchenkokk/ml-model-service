@@ -1,0 +1,8 @@
+.env
+__pycache__/
+.DS_Store
+.ruff_cache
+.venv
+
+trained_models
+ml_model_service.db

@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package ml_model_service;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/empty.proto";
+
+// get_available_models
+message GetAvailableModelsResponse {
+    map<string, string> models = 1;
+}
+
+// train
+message TrainModelRequest {
+    string model_name = 1;
+    google.protobuf.Struct hyperparameters = 2;
+    repeated Feature features = 3;
+    repeated int32 target = 4;
+}
+
+message TrainModelResponse {
+    string message = 1;
+    string trained_model_id = 2;
+}
+
+// get_trained_models
+message TrainedModelInfo {
+    string id = 1;
+    string model_name = 2;
+    google.protobuf.Struct hyperparameters = 3;
+    string model_path = 4;
+}
+
+message GetTrainedModelsResponse {
+    repeated TrainedModelInfo models = 1;
+}
+
+
+message Feature {
+    repeated float values = 1;
+}
+
+// predict
+message ModelPredictRequest {
+    string model_id = 1;
+    repeated Feature features = 2;
+}
+
+message ModelPredictResponse {
+    string model_id = 1;
+    repeated int32 preds = 2;
+}
+
+// delete
+message DeleteModelRequest {
+    string model_id = 1;
+}
+
+message DeleteModelResponse {
+    string message = 1;
+}
+
+// retrain
+message RetrainModelRequest {
+    string model_id = 1;
+    google.protobuf.Struct hyperparameters = 2;
+    repeated Feature features = 3;
+    repeated int32 target = 4;
+}
+
+message RetrainModelResponse {
+    string message = 1;
+}
+
+service MLModelService {
+    rpc GetAvailableModels(google.protobuf.Empty) returns (GetAvailableModelsResponse);
+    rpc TrainModel(TrainModelRequest) returns (TrainModelResponse);
+    rpc GetTrainedModels(google.protobuf.Empty) returns (GetTrainedModelsResponse);
+    rpc Predict(ModelPredictRequest) returns (ModelPredictResponse);
+    rpc DeleteModel(DeleteModelRequest) returns (DeleteModelResponse);
+    rpc RetrainModel(RetrainModelRequest) returns (RetrainModelResponse);
+}
